@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Wanderlog Place Importer",
+  "version": "3.0.0",
+  "description": "Import your Google Maps saved list directly into a Wanderlog trip section — with notes.",
+
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "tabs"
+  ],
+
+  "host_permissions": [
+    "https://wanderlog.com/*"
+  ],
+
+  "action": {
+    "default_title": "Import Google Maps places into Wanderlog",
+    "default_popup": "popup.html"
+  }
+}
