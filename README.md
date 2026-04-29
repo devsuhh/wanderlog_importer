@@ -1,6 +1,7 @@
 # Wanderlog Place Importer
 
 A Chrome extension that imports your Google Maps saved places directly into a [Wanderlog](https://wanderlog.com) trip section — with notes. Includes a reconciliation audit to verify what made it in.
+This compliments and serves as input into the [Google Maps Extractor](https://github.com/devsuhh/google_maps_extractor) extension that I built.
 
 ## What it does
 
