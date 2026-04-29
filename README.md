@@ -110,6 +110,12 @@ Each row is numbered and you can export via **Copy to Clipboard** (formatted tex
 
 The extension does not make any network requests, collect any data, or communicate with any server. Everything runs locally between the popup and the Wanderlog tab.
 
+## Updates and Comments
+
+I will try to keep this updated, but this will be on a best-effort basis (and based on how many tokens I may have leftover from my daily work!)
+
+If this helped you, consider [buying me a coffee :)](https://buymeacoffee.com/devsuhh)
+
 ## License
 
 MIT
