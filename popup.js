@@ -23,6 +23,7 @@ function showPanel(id) {
    'panelAuditPaste','panelAuditSection','panelReconcile'].forEach(p => {
     document.getElementById(p).style.display = p === id ? 'block' : 'none';
   });
+  saveState();
 }
 
 function setStatus(msg, type = '') {
@@ -44,6 +45,138 @@ function updateProgress(current, total, label, address) {
   if (text) text.textContent = `${current} / ${total}`;
   if (labelEl && label) labelEl.textContent = label;
   if (addrEl) { addrEl.textContent = address || ''; addrEl.style.display = address ? 'block' : 'none'; }
+}
+
+// ── Persistent state (survives popup close/reopen) ──────────────────────────
+
+async function saveState() {
+  try {
+    await chrome.storage.session.set({
+      popupState: {
+        appMode,
+        activePanel: getCurrentPanel(),
+        parsedPlaces,
+        selectedSection,
+        resolveMode,
+        pauseTimerSecs,
+        activeTabId,
+        auditParsedPlaces,
+        auditSelectedSection,
+        lastReconcileData,
+        pasteBoxValue: document.getElementById('pasteBox')?.value || '',
+        auditPasteBoxValue: document.getElementById('auditPasteBox')?.value || '',
+        statusMsg: document.getElementById('status')?.textContent || '',
+        statusClass: document.getElementById('status')?.className || '',
+      }
+    });
+  } catch (e) { /* storage not available — ignore */ }
+}
+
+function getCurrentPanel() {
+  const panels = ['panelPaste','panelSection','panelImport','panelDone',
+                  'panelAuditPaste','panelAuditSection','panelReconcile'];
+  for (const p of panels) {
+    if (document.getElementById(p)?.style.display === 'block') return p;
+  }
+  return 'panelPaste';
+}
+
+async function restoreState() {
+  try {
+    const { popupState: s } = await chrome.storage.session.get('popupState');
+    if (!s) return false;
+
+    // Restore variables
+    appMode              = s.appMode || 'import';
+    parsedPlaces         = s.parsedPlaces || [];
+    selectedSection      = s.selectedSection || null;
+    resolveMode          = s.resolveMode || 'auto';
+    pauseTimerSecs       = s.pauseTimerSecs || 10;
+    activeTabId          = s.activeTabId || null;
+    auditParsedPlaces    = s.auditParsedPlaces || [];
+    auditSelectedSection = s.auditSelectedSection || null;
+    lastReconcileData    = s.lastReconcileData || null;
+
+    // Restore top mode toggle
+    const topImportBtn = document.getElementById('topModeImport');
+    const topAuditBtn  = document.getElementById('topModeAudit');
+    if (appMode === 'audit') {
+      topAuditBtn.classList.add('active'); topImportBtn.classList.remove('active');
+    } else {
+      topImportBtn.classList.add('active'); topAuditBtn.classList.remove('active');
+    }
+
+    // Restore resolve mode UI
+    const modeAutoBtn   = document.getElementById('modeAutoBtn');
+    const modeManualBtn = document.getElementById('modeManualBtn');
+    const modeDesc      = document.getElementById('modeDesc');
+    const timerControl  = document.getElementById('timerControl');
+    if (resolveMode === 'manual') {
+      modeManualBtn.classList.add('active'); modeAutoBtn.classList.remove('active');
+      modeDesc.textContent = 'If anything is unclear, the import pauses so you can handle it manually.';
+      timerControl.style.display = 'flex';
+    } else {
+      modeAutoBtn.classList.add('active'); modeManualBtn.classList.remove('active');
+      modeDesc.textContent = 'If a place doesn\'t appear, the import pauses briefly then flags it and moves on.';
+      timerControl.style.display = 'none';
+    }
+    document.getElementById('timerSlider').value = pauseTimerSecs;
+    document.getElementById('timerValue').textContent = `${pauseTimerSecs}s`;
+
+    // Restore paste boxes
+    if (s.pasteBoxValue) {
+      document.getElementById('pasteBox').value = s.pasteBoxValue;
+      onPasteInput();
+    }
+    if (s.auditPasteBoxValue) {
+      document.getElementById('auditPasteBox').value = s.auditPasteBoxValue;
+      onAuditPasteInput();
+    }
+
+    // Restore the correct panel
+    const panel = s.activePanel || 'panelPaste';
+
+    // Some panels need their content rebuilt
+    if (panel === 'panelReconcile' && lastReconcileData) {
+      buildReconcilePanel(lastReconcileData.data, lastReconcileData.sectionTitle);
+      return true;
+    }
+
+    if (panel === 'panelDone') {
+      // Done panel data comes from page state (tryReconnect handles this)
+      // But if we have reconcile data, the import results are on the page
+      // Let tryReconnect handle it — it checks window.__wanderlogImporter
+      return false;
+    }
+
+    if (panel === 'panelSection' || panel === 'panelAuditSection') {
+      // Section pickers need a live scan — fall back to paste panel
+      showPanel(appMode === 'audit' ? 'panelAuditPaste' : 'panelPaste');
+      return true;
+    }
+
+    if (panel === 'panelImport') {
+      // Import in progress — let tryReconnect handle it
+      return false;
+    }
+
+    // For paste panels, just show them (data already restored above)
+    showPanel(panel);
+
+    // Restore status bar
+    if (s.statusMsg) {
+      const statusEl = document.getElementById('status');
+      statusEl.textContent = s.statusMsg;
+      statusEl.className = s.statusClass || '';
+      statusEl.style.display = 'block';
+    }
+
+    return true;
+  } catch (e) { return false; }
+}
+
+async function clearSavedState() {
+  try { await chrome.storage.session.remove('popupState'); } catch (e) {}
 }
 
 // ── Page state bridge (read/write window.__wanderlogImporter via executeScript) ──
@@ -210,6 +343,7 @@ function onPasteInput() {
     st.textContent = `✓ ${parsedPlaces.length} places · ${a} with addresses · ${n} with notes`;
     st.className = 'parse-status ok'; if (btn) btn.disabled = false;
   }
+  saveState();
 }
 
 // ── Scan ──────────────────────────────────────────────────────────────────────
@@ -1061,6 +1195,7 @@ function onAuditPasteInput() {
     st.textContent = `✓ ${auditParsedPlaces.length} places · ${a} with addresses · ${n} with notes`;
     st.className = 'parse-status ok'; if (btn) btn.disabled = false;
   }
+  saveState();
 }
 
 async function onAuditScanClick() {
@@ -1173,17 +1308,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     modeAutoBtn.classList.add('active'); modeManualBtn.classList.remove('active');
     modeDesc.textContent = 'If a place doesn\'t appear, the import pauses briefly then flags it and moves on.';
     timerControl.style.display = 'none';
+    saveState();
   });
   modeManualBtn.addEventListener('click', () => {
     resolveMode = 'manual';
     modeManualBtn.classList.add('active'); modeAutoBtn.classList.remove('active');
     modeDesc.textContent = 'If anything is unclear, the import pauses so you can handle it manually.';
     timerControl.style.display = 'flex';
+    saveState();
   });
 
   document.getElementById('timerSlider')?.addEventListener('input', e => {
     pauseTimerSecs = parseInt(e.target.value);
     document.getElementById('timerValue').textContent = `${pauseTimerSecs}s`;
+    saveState();
   });
 
   document.getElementById('pasteBox')?.addEventListener('input', onPasteInput);
@@ -1210,6 +1348,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const stopBtn = document.getElementById('stopBtn');
     if (stopBtn) { stopBtn.textContent = '⏹️ Stop Import'; stopBtn.disabled = false; }
     setStatus(''); showPanel('panelPaste');
+    clearSavedState();
   });
 
   // ── Mode toggle ──────────────────────────────────────────────────────────
@@ -1263,5 +1402,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     else showPanel('panelDone');
   });
 
-  await tryReconnect();
+  // ── Restore persisted state, then check for active imports ────────────
+  const restored = await restoreState();
+  if (!restored) {
+    await tryReconnect();
+  } else {
+    // Even if we restored, check if an import is actively running on the page
+    // (tryReconnect will override to panelImport/panelDone if needed)
+    await tryReconnect();
+  }
 });
